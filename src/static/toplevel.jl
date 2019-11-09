@@ -31,7 +31,8 @@ struct ToplevelModuleUsage <: ToplevelItem
 end
 
 """
-    toplevelitems(text; kwargs...)::Vector{ToplevelItem}
+    toplevelitems(text::String; kwargs...)::Vector{ToplevelItem}
+    toplevelitems(text::String, expr::CSTParser.EXPR; kwargs...)::Vector{ToplevelItem}
 
 Finds and returns toplevel "item"s (call and binding) in `text`.
 
@@ -40,16 +41,14 @@ keyword arguments:
     other than `mod`, otherwise enter into every module.
 - `inmod::Bool`: if `true`, don't include toplevel items until it enters into `mod`.
 """
-function toplevelitems(text; kwargs...)
-    parsed = CSTParser.parse(text, true)
-    _toplevelitems(text, parsed; kwargs...)
-end
+toplevelitems(text::String; kwargs...) = _toplevelitems(text, CSTParser.parse(text, true); kwargs...)
+toplevelitems(text::String, expr::CSTParser.EXPR; kwargs...) = _toplevelitems(text, expr; kwargs...)
+toplevelitems(text::String, expr::Nothing; kwargs...) = ToplevelItem[]
 
 function _toplevelitems(
-    text, expr,
-    items::Vector{ToplevelItem} = Vector{ToplevelItem}(), line = 1, pos = 1;
-    mod::Union{Nothing, String} = nothing,
-    inmod::Bool = false,
+    text::String, expr::CSTParser.EXPR,
+    items::Vector{ToplevelItem} = ToplevelItem[], line::Int = 1, pos::Int = 1;
+    mod::Union{Nothing, String} = nothing, inmod::Bool = false,
 )
     # add items if `mod` isn't specified or in a target modle
     if mod === nothing || inmod
