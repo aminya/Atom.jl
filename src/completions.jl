@@ -10,55 +10,55 @@ handle("completions") do data
   withpath(path) do
     m = getmodule(mod)
 
-    cs, pre = basecompletionadapter(line, m, force, lineNumber - startLine, column, editorContent)
+    comps, prefix = basecompletionadapter(line, m, force, lineNumber - startLine, column, editorContent)
 
-    Dict(:completions => cs,
-         :prefix      => string(pre))
+    Dict(:completions => comps,
+         :prefix      => string(prefix))
   end
 end
 
 using REPL.REPLCompletions
 
+const MAX_COMPLETIONS = Ref{Int}(100)
+
+"""
+    set_max_completions(max_completions::Int)
+
+Set the maximum number of auto-completion suggestions to `max_completions`.
+"""
+set_max_completions(max_completions::Int) = MAX_COMPLETIONS[] = max_completions
+export set_max_completions
+
 function basecompletionadapter(line, mod, force, lineNumber, column, text)
-  comps, replace, shouldcomplete = try
-    completions(line, lastindex(line), mod)
+  cs, replace, shouldcomplete = try
+    completions(line, lastindex(line), mod; filter_nonpositive_scores = !force, max_completions = MAX_COMPLETIONS[])
   catch err
     # might error when e.g. type inference fails
     [], 1:0, false
   end
 
-  # Suppress completions if there are too many of them unless activated manually
-  # @TODO: Checking whether `line` is a valid text to be completed in atom-julia-client
-  #        in advance and drop this check
-  if !force && length(comps) > MAX_COMPLETIONS
-    comps = []
-    replace = 1:0
-  end
-
-  pre = line[replace]
-  d = []
-  for c in comps
+  prefix = line[replace]
+  comps = []
+  for c in cs
     if REPLCompletions.afterusing(line, Int(first(replace))) # need `Int` for correct dispatch on x86
       c isa REPLCompletions.PackageCompletion || continue
     end
     try
-      push!(d, completion(mod, c))
+      push!(comps, completion(mod, c))
     catch err
       continue
     end
   end
 
-  # completions from the local code block:
-  for c in localcompletions(text, lineNumber, column)
-    if (force || !isempty(pre)) && startswith(c[:text], pre)
-      pushfirst!(d, c)
-    end
+  (!isempty(prefix) || force) && @>> begin
+    localcompletions(text, lineNumber, column)
+    filter!(c -> REPL.fuzzyscore(prefix, c[:text]) ≥ 0)
+    sort!(; by = c -> REPL.fuzzyscore(prefix, c[:text]), rev = true)
+    prepend!(comps)
   end
 
-  d, pre
+  comps, prefix
 end
-
-const MAX_COMPLETIONS = 500
 
 function completion(mod, c)
   return Dict(:type               => completiontype(c),
@@ -188,11 +188,7 @@ end
 completionicon(::REPLCompletions.DictCompletion) = "icon-key"
 completionicon(::REPLCompletions.PathCompletion) = "icon-file"
 
-function localcompletions(text, line, col)
-  ls = locals(text, line, col)
-  reverse!(ls)
-  map(localcompletion, ls)
-end
+localcompletions(text, line, col) = localcompletion.(reverse!(locals(text, line, col)))
 
 function localcompletion(l)
   return Dict(
@@ -203,10 +199,4 @@ function localcompletion(l)
     :text        => l[:name],
     :description => ""
   )
-end
-
-handle("cacheCompletions") do mod
-  # m = getthing(mod)
-  # m = isa(m, Module) ? m : Main
-  # CodeTools.completions(m)
 end
