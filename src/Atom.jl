@@ -63,7 +63,4 @@ include("frontend.jl")
 include("debugger/debugger.jl")
 include("profiler/profiler.jl")
 
-include("precompile.jl")
-_precompile_()
-
 end # module
